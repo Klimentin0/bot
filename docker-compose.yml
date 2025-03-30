@@ -1,0 +1,78 @@
+
+services:
+  mattermost-db:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: mmuser
+      POSTGRES_PASSWORD: mmuser_password
+      POSTGRES_DB: mattermost
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mmuser -d mattermost"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - voting-net
+    volumes:
+      - ./postgres-data:/var/lib/postgresql/data
+
+  mattermost:
+    image: mattermost/mattermost-team-edition:latest
+    environment:
+      MM_SQLSETTINGS_DATASOURCE: "postgres://mmuser:mmuser_password@mattermost-db:5432/mattermost?sslmode=disable"
+      MM_SERVICESETTINGS_SITEURL: "http://localhost:8065"
+      MM_PLUGINSETTINGS_ENABLEUPLOADS: "true"
+      MM_PLUGINSETTINGS_AUTOMATICPREPACKAGEDPLUGINS: "false" 
+      MM_EMAILSETTINGS_ENABLESMTPAUTH: "false"
+      MM_EMAILSETTINGS_SKIPSERVERCERTIFICATEVERIFICATION: "true"
+    user: "2000:2000"
+    volumes:
+      - ./mattermost/data:/mattermost/data
+      - ./mattermost/config:/mattermost/config
+      - ./mattermost/logs:/mattermost/logs
+      - ./mattermost/plugins:/mattermost/plugins
+    depends_on:
+      mattermost-db:
+        condition: service_healthy
+    networks:
+      - voting-net
+
+  tarantool:
+    image: tarantool/tarantool:2.10
+    volumes:
+      - ./tarantool/init.lua:/opt/tarantool/init.lua
+      - tarantool-data:/var/lib/tarantool
+    healthcheck:
+      test: ["CMD", "tarantool", "-e", "if box.info().status == 'running' then os.exit(0) else os.exit(1) end"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+    networks:
+      voting-net:
+        aliases:
+          - tarantool-host
+
+  voting-bot:
+    build: .
+    environment:
+      TARANTOOL_HOST: "tarantool-host"  
+      TARANTOOL_PORT: "3301"
+      MATTERMOST_URL: "http://mattermost:8065"
+      MATTERMOST_TOKEN: "your-bot-token"
+    depends_on:
+      tarantool:
+        condition: service_healthy
+      mattermost:
+        condition: service_healthy
+    networks:
+      - voting-net
+
+volumes:
+  postgres-data:
+  tarantool-data:
+
+networks:
+  voting-net:
+    driver: bridge

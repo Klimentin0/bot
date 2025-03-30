@@ -1,0 +1,4 @@
+mattermost-data/
+postgres-data/
+tarantool-data/
+mattermost/
